@@ -20,6 +20,9 @@ def get_detector(opt=None):
         from detector.effdet_api import EffDetDetector
         from detector.effdet_cfg import cfg
         return EffDetDetector(cfg, opt)
+    elif opt.detector == 'yolo4':
+        from detector.yolo4_api import YOLO4Detector
+        from detector.yolo4_cfg import cfg
     else:
         raise NotImplementedError
 

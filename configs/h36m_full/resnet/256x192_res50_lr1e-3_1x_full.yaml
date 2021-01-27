@@ -1,0 +1,73 @@
+DATASET:
+  TRAIN:
+    TYPE: 'Human36MFull'
+    ROOT: './data/train/'
+    IMG_PREFIX: ''
+    ANN: 'train_full_annot.json'
+    AUG:
+      FLIP: true
+      ROT_FACTOR: 45
+      SCALE_FACTOR: 0.35
+      NUM_JOINTS_HALF_BODY: 11
+      PROB_HALF_BODY: -1
+    PATH:
+      COCO: '/private/home/taoshaf/src/pytorch-cpn/data/COCO2017/train2017'
+      H36M: '/private/home/taoshaf/src/c2f-vol-train/data/h36m/images'
+      HALPE: '/private/home/taoshaf/src/halpe_dataset/hico_20160224_det/images/train2015'
+  VAL:
+    TYPE: 'Human36MFull'
+    ROOT: './data/valid/'
+    IMG_PREFIX: ''
+    ANN: 'valid_full_annot.json'
+    PATH:
+      COCO: '/private/home/taoshaf/src/pytorch-cpn/data/COCO2017/val2017'
+      H36M: '/private/home/taoshaf/src/c2f-vol-demo/data/h36m/images'
+      HALPE: '/private/home/taoshaf/src/pytorch-cpn/data/COCO2017/val2017'
+  TEST:
+    TYPE: 'Halpe_26'
+    ROOT: ''
+    IMG_PREFIX: 'val2017'
+    DET_FILE: './exp/json/test_det_yolo.json'
+    ANN: '/home/group3/coco_val_full_26.json'
+DATA_PRESET:
+  TYPE: 'simple'
+  SIGMA: 2
+  NUM_JOINTS: 28
+  IMAGE_SIZE:
+  - 256
+  - 192
+  HEATMAP_SIZE:
+  - 64
+  - 48
+MODEL:
+  TYPE: 'FastPose'
+  PRETRAINED: ''
+  TRY_LOAD: '/private/home/taoshaf/src/AlphaPose/exp/H36M-256x192_res50-lr1e-3_1x_full.yaml/model_2.pth'
+  NUM_DECONV_FILTERS:
+  - 256
+  - 256
+  - 256
+  NUM_LAYERS: 50
+LOSS:
+  TYPE: 'MSELoss'
+DETECTOR:
+  NAME: 'yolo'
+  CONFIG: 'detector/yolo/cfg/yolov3-spp.cfg'
+  WEIGHTS: 'detector/yolo/data/yolov3-spp.weights'
+  NMS_THRES: 0.6
+  CONFIDENCE: 0.05
+TRAIN:
+  WORLD_SIZE: 4
+  BATCH_SIZE: 48
+  BEGIN_EPOCH: 2 
+  END_EPOCH: 25 
+  OPTIMIZER: 'adam'
+  LR: 0.00005
+  LR_FACTOR: 0.1
+  LR_STEP:
+  - 15
+  - 25
+  DPG_MILESTONE: 15
+  DPG_STEP:
+  - 110
+  - 130

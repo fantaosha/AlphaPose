@@ -24,7 +24,7 @@ parser.add_argument('--exp-id', default='default', type=str,
 "----------------------------- General options -----------------------------"
 parser.add_argument('--nThreads', default=60, type=int,
                     help='Number of data loading threads')
-parser.add_argument('--snapshot', default=2, type=int,
+parser.add_argument('--snapshot', default=1, type=int,
                     help='How often to take a snapshot of the model (0 = never)')
 
 parser.add_argument('--rank', default=-1, type=int,
@@ -37,6 +37,8 @@ parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm', 'mpi'], d
                     help='job launcher')
 
 "----------------------------- Training options -----------------------------"
+parser.add_argument('--nr', default=0, type=int,
+                    help='ranking within the nodes')
 parser.add_argument('--sync', default=False, dest='sync',
                     help='Use Sync Batchnorm', action='store_true')
 parser.add_argument('--detector', dest='detector',
@@ -56,17 +58,22 @@ cfg_file_name = os.path.basename(opt.cfg)
 cfg = update_config(opt.cfg)
 
 cfg['FILE_NAME'] = cfg_file_name
+
+if 'NODES' not in cfg.TRAIN.keys() or cfg.TRAIN.NODES <= 0:
+    cfg.TRAIN.NODES = 1
+
 cfg.TRAIN.DPG_STEP = [i - cfg.TRAIN.DPG_MILESTONE for i in cfg.TRAIN.DPG_STEP]
-opt.world_size = cfg.TRAIN.WORLD_SIZE
 opt.work_dir = './exp/{}-{}/'.format(opt.exp_id, cfg_file_name)
 opt.gpus = [i for i in range(torch.cuda.device_count())]
+opt.num_gpus = torch.cuda.device_count()
+opt.world_size = cfg.TRAIN.NODES * opt.num_gpus
 opt.device = torch.device("cuda:" + str(opt.gpus[0]) if opt.gpus[0] >= 0 else "cpu")
 
 if not os.path.exists("./exp/{}-{}".format(opt.exp_id, cfg_file_name)):
     os.makedirs("./exp/{}-{}".format(opt.exp_id, cfg_file_name))
 
 filehandler = logging.FileHandler(
-    './exp/{}-{}/training.log'.format(opt.exp_id, cfg_file_name))
+    './exp/{}-{}/training-{}.log'.format(opt.exp_id, cfg_file_name, opt.nr))
 streamhandler = logging.StreamHandler()
 
 logger = logging.getLogger('')
