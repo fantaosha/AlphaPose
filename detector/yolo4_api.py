@@ -8,12 +8,15 @@ from detector.apis import BaseDetector
 from yolo4_csp.preprocess import prep_image, prep_frame, unique
 
 from yolo4_csp.ScaledYOLOv4.models.models import *
+from yolo4_csp.ScaledYOLOv4.utils.torch_utils import time_synchronized
+
 
 import numpy as np
 import torch
 import platform
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 
@@ -64,7 +67,7 @@ class YOLO4Detector(BaseDetector):
         self.model.eval()
 
         if self.use_cuda:
-            self.model.half()
+            self.model
 
         print("Network successfully loaded")
 
@@ -98,11 +101,11 @@ class YOLO4Detector(BaseDetector):
             self.load_model()
 
         with torch.no_grad():
-            imgs = imgs.cuda().half() if self.use_cuda else imgs.to(self.device).float()
+            imgs = imgs.cuda() if self.use_cuda else imgs.to(self.device).float()
 
             imgs = imgs.div(255.0)
 
-            prediction = self.model(imgs)[0]
+            prediction = self.model(imgs)
             # do nms to the detection results, only human category is left
             dets = self.dynamic_write_results(prediction, self.confidence,
                                               self.num_classes, nms=True,
@@ -152,7 +155,7 @@ class YOLO4Detector(BaseDetector):
         dets_results = []
 
         with torch.no_grad():
-            img = img.cuda().half() if self.use_cuda else img.to(self.device).float()
+            img = img.cuda() if self.use_cuda else img.to(self.device).float()
 
             img = img.div(255.0)
 
@@ -162,7 +165,79 @@ class YOLO4Detector(BaseDetector):
             # img_dim_list = torch.FloatTensor([img_dim_list]).repeat(1, 2)
             orig_dim_list = torch.FloatTensor([orig_dim_list]).repeat(1, 2)
 
-            prediction = self.model(img)[0]
+            prediction = self.model(img)
+            dets = self.dynamic_write_results(prediction, self.confidence,
+                                              self.num_classes, nms=True,
+                                              nms_conf=self.nms_thres)
+
+            if isinstance(dets, int) or dets.shape[0] == 0:
+                return None
+
+            dets = dets.cpu()
+
+            # img_h, img_w = img.shape[2:]
+            orig_dim_list = torch.index_select(
+                orig_dim_list, 0, dets[:, 0].long())
+            scaling_factor = torch.min(
+                self.inp_dim / orig_dim_list, 1)[0].view(-1, 1)
+            dets[:, [1, 3]] -= (self.inp_dim - scaling_factor *
+                                orig_dim_list[:, 0].view(-1, 1)) / 2
+            dets[:, [2, 4]] -= (self.inp_dim - scaling_factor *
+                                orig_dim_list[:, 1].view(-1, 1)) / 2
+            dets[:, 1:5] /= scaling_factor
+            for i in range(dets.shape[0]):
+                dets[i, [1, 3]] = torch.clamp(
+                    dets[i, [1, 3]], 0.0, orig_dim_list[i, 0])
+                dets[i, [2, 4]] = torch.clamp(
+                    dets[i, [2, 4]], 0.0, orig_dim_list[i, 1])
+
+                # write results
+                det_dict = {}
+                x = float(dets[i, 1])
+                y = float(dets[i, 2])
+                w = float(dets[i, 3] - dets[i, 1])
+                h = float(dets[i, 4] - dets[i, 2])
+                det_dict["category_id"] = 1
+                det_dict["score"] = float(dets[i, 5])
+                det_dict["bbox"] = [x, y, w, h]
+                det_dict["image_id"] = img_id
+                dets_results.append(det_dict)
+
+            return dets_results
+        
+    def detect_one_frame(self, img_id, img):
+        """
+        Detect bboxs in one image
+        Input: an image file
+        Output: '[{"category_id":1,"score":float,"bbox":[x,y,w,h],"image_id":str},...]',
+        The output results are similar with coco results type, except that image_id uses full path str
+        instead of coco %012d id for generalization. 
+        """
+        args = self.detector_opt
+
+        if not self.model:
+            self.load_model()
+
+        # pre-process(scale, normalize, ...) the image
+        img, orig_img, orig_dim_list = prep_frame(img, self.inp_dim)
+
+        if isinstance(img, np.ndarray):
+            img = torch.from_numpy(img)
+
+        dets_results = []
+
+        with torch.no_grad():
+            img = img.cuda() if self.use_cuda else img.to(self.device).float()
+
+            img = img.div(255.0)
+
+            if img.dim() == 3:
+                img = img.unsqueeze(0)
+
+            # img_dim_list = torch.FloatTensor([img_dim_list]).repeat(1, 2)
+            orig_dim_list = torch.FloatTensor([orig_dim_list]).repeat(1, 2)
+
+            prediction = self.model(img)
             dets = self.dynamic_write_results(prediction, self.confidence,
                                               self.num_classes, nms=True,
                                               nms_conf=self.nms_thres)
@@ -276,14 +351,14 @@ class YOLO4Detector(BaseDetector):
                 cls_mask = image_pred_ * \
                     (image_pred_[:, -1] == cls).float().unsqueeze(1)
                 class_mask_ind = torch.nonzero(cls_mask[:, -2]).squeeze()
-
-                image_pred_class = image_pred_[class_mask_ind].view(-1, 7)
+                
+                image_pred_class = image_pred_[class_mask_ind.cpu().numpy()].view(-1, 7)
 
                 # sort the detections such that the entry with the maximum objectness
                 # confidence is at the top
                 conf_sort_index = torch.sort(
                     image_pred_class[:, 4], descending=True)[1]
-                image_pred_class = image_pred_class[conf_sort_index]
+                image_pred_class = image_pred_class[conf_sort_index.cpu().numpy()]
                 idx = image_pred_class.size(0)
 
                 # if nms has to be done
@@ -295,7 +370,7 @@ class YOLO4Detector(BaseDetector):
                         # nms_op output: input[inds,:], inds
                         _, inds = nms_op(image_pred_class[:, :5], nms_conf)
 
-                        image_pred_class = image_pred_class[inds]
+                        image_pred_class = image_pred_class[inds.cpu().numpy()]
                     else:
                         # Perform non-maximum suppression
                         max_detections = []
