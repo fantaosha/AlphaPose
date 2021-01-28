@@ -5,7 +5,8 @@ from utils.general import *
 import torch
 from torch import nn
 
-from mish_cuda import MishCuda as Mish
+#from mish_cuda import MishCuda as Mish
+from utils.activations import Mish
 
 
 def make_divisible(v, divisor):
@@ -90,7 +91,7 @@ class WeightedFeatureFusion(nn.Module):  # weighted sum of 2 or more layers http
         for i in range(self.n - 1):
             a = outputs[self.layers[i]] * w[i + 1] if self.weight else outputs[self.layers[i]]  # feature to add
             na = a.shape[1]  # feature channels
-
+            
             # Adjust channels
             if nx == na:  # same shape
                 x = x + a
