@@ -17,6 +17,7 @@ import platform
 import os
 import sys
 from torch2trt import torch2trt
+from torch2trt import TRTModule
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -49,12 +50,12 @@ class YOLO4TRTDetector(BaseDetector):
         self.use_cuda = None
         self.device = None
 
-    def load_model(self, use_half = False):
+    def load_model(self, use_half=False):
         args = self.detector_opt
         self.use_cuda = len(args.gpus) > 0
         self.device = args.device
 
-        print('Loading YOLO4 model..')
+        print('Loading YOLO4 model...')
         with torch.cuda.device(args.gpus[0] if self.use_cuda else -1):
             self.model = Darknet(self.model_cfg)
 
@@ -64,16 +65,31 @@ class YOLO4TRTDetector(BaseDetector):
             except:
                 self.model = self.model.to(self.device)
                 load_darknet_weights(self.model, self.model_weights)
-       
+
         self.model.eval()
-        
-        print("Network successfully loaded")
-        
+
+        print("Network successfully loaded.")
+
         if self.use_cuda:
-            x = torch.ones((1,3,self.inp_dim, self.inp_dim)).cuda()
+            x = torch.ones((1, 3, self.inp_dim, self.inp_dim)).cuda()
             self.model = torch2trt(self.model, [x], fp16_mode=use_half)
-            
-            print("TensorRT network created")
+
+            print("TensorRT network created.")
+
+    def load_model_trt(self, path):
+        args = self.detector_opt
+        self.use_cuda = len(args.gpus) > 0
+        self.device = args.device
+
+        print('Loading YOLO4 model...')
+
+        if self.use_cuda:
+            self.model = TRTModule()
+            self.model.load_state_dict(torch.load(path))
+
+            print("TensorRT network loaded.")
+        else:
+            print('Fail to load TensorRT model.')
 
     def image_preprocess(self, img_source):
         """
@@ -93,7 +109,7 @@ class YOLO4TRTDetector(BaseDetector):
 
     def images_detection(self, imgs, orig_dim_list):
         """
-        Feed the img data into object detection network and 
+        Feed the img data into object detection network and
         collect bbox w.r.t original image size
         Input: imgs(torch.FloatTensor,(b,3,h,w)): pre-processed mini-batch image input
                orig_dim_list(torch.FloatTensor, (b,(w,h,w,h))): original mini-batch image size
@@ -208,7 +224,7 @@ class YOLO4TRTDetector(BaseDetector):
                 dets_results.append(det_dict)
 
             return dets_results
-        
+
     def detect_one_frame(self, img_id, img):
         """
         Detect bboxs in one image
@@ -355,14 +371,16 @@ class YOLO4TRTDetector(BaseDetector):
                 cls_mask = image_pred_ * \
                     (image_pred_[:, -1] == cls).float().unsqueeze(1)
                 class_mask_ind = torch.nonzero(cls_mask[:, -2]).squeeze()
-                
-                image_pred_class = image_pred_[class_mask_ind.cpu().numpy()].view(-1, 7)
+
+                image_pred_class = image_pred_[
+                    class_mask_ind.cpu().numpy()].view(-1, 7)
 
                 # sort the detections such that the entry with the maximum objectness
                 # confidence is at the top
                 conf_sort_index = torch.sort(
                     image_pred_class[:, 4], descending=True)[1]
-                image_pred_class = image_pred_class[conf_sort_index.cpu().numpy()]
+                image_pred_class = image_pred_class[conf_sort_index.cpu(
+                ).numpy()]
                 idx = image_pred_class.size(0)
 
                 # if nms has to be done
