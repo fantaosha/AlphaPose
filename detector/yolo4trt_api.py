@@ -17,6 +17,7 @@ import platform
 import os
 import sys
 from torch2trt import torch2trt
+from torch2trt import TRTModule
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -72,6 +73,18 @@ class YOLO4TRTDetector(BaseDetector):
         if self.use_cuda:
             x = torch.ones((1,3,self.inp_dim, self.inp_dim)).cuda()
             self.model = torch2trt(self.model, [x], fp16_mode=use_half)
+            
+            print("TensorRT network created")
+            
+    def load_model_trt(self, path):
+        args = self.detector_opt
+        self.use_cuda = len(args.gpus) > 0
+        self.device = args.device
+        
+        if self.use_cuda:
+            self.model = TRTModule() 
+            self.model.load_state_dict(torch.load(path))
+            self.model.eval()
             
             print("TensorRT network created")
 
